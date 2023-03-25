@@ -1,56 +1,69 @@
 import pandas as pd
 import numpy as np
 import tensorflow as tf
-from transformers import BertTokenizer, TFBertModel
+import re
+import pickle
+from transformers import AutoTokenizer, TFAutoModel
 
-# BERT model transforma propozitiile intr un vector de numere
+df = pd.read_csv("data//train_data.csv", encoding="utf-8")
 
-df = pd.read_csv("data//train_data.csv", encoding="ISO-8859-1")
+# https://huggingface.co/readerbench/RoBERT-large
+tokenizer = AutoTokenizer.from_pretrained("readerbench/RoBERT-large")
+model = TFAutoModel.from_pretrained("readerbench/RoBERT-large")
 
-print(df.head(5))
-
-tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-
-model = TFBertModel.from_pretrained("bert-base-uncased")
-
-# liste pentru noul dataset (x_data-embeddings, y_data-labels)
+# x_data - embeddings, y_data - labels, id_data - ids
 x_data = []
 y_data = []
+id_data = []
 i = 0
+
 for index, row in df.iterrows():
     # transform labelul intr-un numar
     if row[1] == 'offensive':
         y_data.append(0)
     elif row[1] == 'non-offensive':
         y_data.append(1)
+    elif row[1] == 'direct':
+        y_data.append(2)
+    elif row[1] == 'descriptive':
+        y_data.append(3)
+    elif row[1] == 'reporting':
+        y_data.append(4)
     else:
         continue
+    id_data.append(row[2])
 
-    # apelez modelul BERT pentru fiecare propozitie
-    input_ids = tf.constant(tokenizer.encode(row[0], max_length=512, truncation=True))[None, :]
+    # replaced twitter accounts with USERNAME
+    clean = re.sub(r"\B@\w+", "USERNAME", row[0])
+    
+    # replaced emails with EMAIL
+    clean = re.sub('([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})', "EMAIL", clean)
+    
+    # removed emojis
+    # https://stackoverflow.com/questions/33404752/removing-emojis-from-a-string-in-python
+    emoji_pattern = re.compile("["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        "]+", flags=re.UNICODE)
+    clean = emoji_pattern.sub(r'', clean)
+    
+    input_ids = tf.constant(tokenizer.encode(clean, max_length=512, truncation=True))[None, :]
     outputs = model(input_ids)
-    if i % 10 == 0:
+    
+    if i % 50 == 0:
         print(i)
     i += 1
 
-    # folosesc doar ultimul strat returnat de modelul BERT
-    x_data.append(np.array(outputs["pooler_output"]).reshape(768))
-    if i > 39009:
+    # using the last layer of RoBERT
+    # default reshaping to 1024
+    x_data.append(np.array(outputs["pooler_output"]).reshape(1024))
+    
+    if i > 39007:
         break
 
-# salvam setul de date pe care il vom folosi la antrenarea modelului nostru
-import pickle
-
+# saving the pickle file 
 with open('embeddings.pk', 'wb') as f:
-    pickle.dump([x_data, y_data], f)
+    pickle.dump([x_data, y_data, id_data], f)
 
-
-
-"""
-model:
-    strat dense input, activare ReLU
-    strat overfitting
-    straturi dense hidden (testam sa vedem cate facem si cat de mari sa fie fiecare), activare ReLU
-    strat output, 3 neuroni, activare softmax
-
-"""
