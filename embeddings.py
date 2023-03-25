@@ -19,17 +19,15 @@ y_data = []
 i = 0
 for index, row in df.iterrows():
     # transform labelul intr-un numar
-    if row[0] == 'neutral':
-        y_data.append(1)
-    elif row[0] == 'positive':
-        y_data.append(2)
-    elif row[0] == 'negative':
+    if row[1] == 'offensive':
         y_data.append(0)
+    elif row[1] == 'non-offensive':
+        y_data.append(1)
     else:
         continue
 
     # apelez modelul BERT pentru fiecare propozitie
-    input_ids = tf.constant(tokenizer.encode(row[1], max_length=512, truncation=True))[None, :]
+    input_ids = tf.constant(tokenizer.encode(row[0], max_length=512, truncation=True))[None, :]
     outputs = model(input_ids)
     if i % 10 == 0:
         print(i)
@@ -37,7 +35,7 @@ for index, row in df.iterrows():
 
     # folosesc doar ultimul strat returnat de modelul BERT
     x_data.append(np.array(outputs["pooler_output"]).reshape(768))
-    if i > 4840:
+    if i > 39009:
         break
 
 # salvam setul de date pe care il vom folosi la antrenarea modelului nostru
