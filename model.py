@@ -1,3 +1,8 @@
+def warn(*args, **kwargs):
+    pass
+import warnings
+warnings.warn = warn
+
 import pickle
 from keras.models import Sequential
 from keras.layers import Dense, Dropout
@@ -82,8 +87,16 @@ def create_model(l1, l2, l3, d1, d2, opt):
     model.add(d2)
     model.add(l3)
     model.add(Dense(5, activation='softmax'))
-    model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer=opt)
+    model.compile(loss='categorical_crossentropy', metrics=[balanced_accuracy], optimizer=opt, run_eagerly=True)
     return model
+
+# custom function for balanced accuracy
+def balanced_accuracy(y_true, y_pred):
+    y_true_np = y_true.numpy()
+    y_pred_np = y_pred.numpy()
+    y_true_np = np.argmax(y_true_np, axis=1)
+    y_pred_np = np.argmax(y_pred_np, axis=1)
+    return balanced_accuracy_score(y_true_np, y_pred_np)
 
 # generate all combinations for grid search
 grid_params = []
@@ -99,6 +112,8 @@ counter = 1
 
 # try all combinations and save the one with the best accuracy
 for combination in grid_combs:
+    ### Modifica aici parametrii
+    combination = [1024, 1024, 512, 0.2, 0.2, 'adam', 0.001]
     print("Combination ", counter)
     print(combination)
     counter += 1
@@ -107,7 +122,7 @@ for combination in grid_combs:
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=checkpoint_filepath,
         save_weights_only=True,
-        monitor='val_accuracy',
+        monitor='val_balanced_accuracy',
         mode='max',
         save_best_only=True)
 
@@ -129,6 +144,7 @@ for combination in grid_combs:
 
     acc = scores[1]
     print(f'{model.metrics_names[1]} of {acc*100}%;')
+    
     if acc > best_acc:
         best_comb = combination
         best_acc = acc
@@ -140,7 +156,7 @@ for combination in grid_combs:
 model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     filepath=checkpoint_filepath,
     save_weights_only=True,
-    monitor='val_accuracy',
+    monitor='val_balanced_accuracy',
     mode='max',
     save_best_only=True)
 
