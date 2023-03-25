@@ -127,11 +127,13 @@ for combination in grid_combs:
     model.load_weights(checkpoint_filepath)
     scores = model.evaluate(X_val, Y_val)
 
-    acc = scores[2]
-    print(f'{model.metrics_names[2]} of {acc*100}%;')
+    acc = scores[1]
+    print(f'{model.metrics_names[1]} of {acc*100}%;')
     if acc > best_acc:
         best_comb = combination
         best_acc = acc
+
+    model.save(os.path.join(path, 'model.h5'))
     exit(0)
 
 # create the model for the best combination
