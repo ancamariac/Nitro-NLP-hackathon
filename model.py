@@ -2,6 +2,7 @@ import pickle
 from keras.models import Sequential
 from keras.layers import Dense, Dropout
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import balanced_accuracy_score
 import matplotlib.pyplot as plt
 import os
 import tensorflow as tf
@@ -11,58 +12,48 @@ import itertools
 
 # paths to roberta embeddings of the dataset
 path = os.getcwd()
-pos_path = os.path.join(path, "embeddings_pos.pk")
-neg_path = os.path.join(path, "embeddings_neg.pk")
-test_pos_path = os.path.join(path, "embeddings_pos_test.pk")
-test_neg_path = os.path.join(path, "embeddings_neg_test.pk")
+emb_path = os.path.join(path, "embeddings.pk")
+
 
 # load dataset
-with open(pos_path, 'rb') as f:
-    X_pos_train = pickle.load(f)
-    Y_pos_train = np.array([1.0] * len(X_pos_train))
-with open(neg_path, 'rb') as f:
-    X_neg_train = pickle.load(f)
-    Y_neg_train = np.array([0.0] * len(X_neg_train))
-with open(test_pos_path, 'rb') as f:
-    X_pos_aux = pickle.load(f)
-    Y_pos_aux = np.array([1.0] * len(X_pos_aux))
-with open(test_neg_path, 'rb') as f:
-    X_neg_aux = pickle.load(f)
-    Y_neg_aux = np.array([0.0] * len(X_neg_aux))
+with open(emb_path, 'rb') as f:
+    X, Y_aux, IDS = pickle.load(f)
 
-X_train = np.concatenate((X_pos_train, X_neg_train), axis=0)
-Y_train = np.concatenate((Y_pos_train, Y_neg_train), axis=0)
-X_aux = np.concatenate((X_pos_aux, X_neg_aux), axis=0)
-Y_aux = np.concatenate((Y_pos_aux, Y_neg_aux), axis=0)
+Y = []
+for elem in Y_aux:
+    aux = [0,0,0,0,0]
+    aux[elem] = 1
+    Y.append(aux)
 
-X_val, X_test, Y_val, Y_test = train_test_split(X_aux, Y_aux, test_size=0.5, random_state=42)
+    
+X = np.array(X)
+Y = np.array(Y)
+
+X_train, X_val, Y_train, Y_val = train_test_split(X, Y, test_size=0.8, random_state=33)
 
 checkpoint_filepath = os.path.join(os.getcwd(), 'tmp', 'checkpoint')
 
 # grid search dict
 dct_grid_space = {
     'layer1' : [
-        256,
-        128,
-        64
+        1024,
+        512
     ],
     'layer2' : [
-        256,
-        128,
-        64
+        1024,
+        512
+    ],
+    'layer3' : [
+        1024,
+        512
     ],
     'dropout1' : [
         0.1,
-        0.2,
         0.3
     ],
-    'activation1' : [
-        'elu',
-        'relu'
-    ],
-    'activation2' : [
-        'relu',
-        'elu'
+    'dropout2' : [
+        0.1,
+        0.3
     ],
     'opt_class' : [
         'sgd',
@@ -76,13 +67,15 @@ dct_grid_space = {
 
 
 # initialize the model
-def create_model(l1, l2, d1, opt):
+def create_model(l1, l2, l3, d1, d2, opt):
     model = Sequential()
     model.add(l1)
     model.add(d1)
     model.add(l2)
-    model.add(Dense(1, activation='sigmoid'))
-    model.compile(loss='binary_crossentropy', metrics=[tf.keras.metrics.Recall(), 'accuracy', tf.keras.metrics.Precision()], optimizer=opt)
+    model.add(d2)
+    model.add(l3)
+    model.add(Dense(5, activation='softmax'))
+    model.compile(loss='categorical_crossentropy', metrics=['accuracy', balanced_accuracy_score], optimizer=opt)
     return model
 
 # generate all combinations for grid search
@@ -92,8 +85,6 @@ for k in dct_grid_space:
     grid_params.append(k)
     grid_values.append(dct_grid_space[k])
 grid_combs = list(itertools.product(*grid_values))
-
-
 
 best_comb = grid_combs[0]
 best_acc = 0
@@ -114,18 +105,20 @@ for combination in grid_combs:
         save_best_only=True)
 
     # combination = [l1_num, l2_num, d1, act1, act2,  opt, lr]
-    l1 = Dense(combination[0], input_shape=(768, ), activation=combination[3])
-    l2 = Dense(combination[1], activation=combination[4])
-    d1 = Dropout(combination[2])
+    l1 = Dense(combination[0], input_shape=(1024, ), activation='relu')
+    l2 = Dense(combination[1], activation='relu')
+    l3 = Dense(combination[2], activation='relu')
+    d1 = Dropout(combination[3])
+    d2 = Dropout(combination[4])
     if combination[5] == 'adam':
         opt = keras.optimizers.Adam(learning_rate=combination[6])
     else:
         opt = keras.optimizers.SGD(learning_rate=combination[6])
 
-    model = create_model(l1, l2, d1, opt)
-    model.fit(X_train, Y_train, batch_size=128, epochs=20, validation_data=(X_val, Y_val), callbacks=[model_checkpoint_callback], verbose=0)
+    model = create_model(l1, l2, l3, d1, d2, opt)
+    model.fit(X_train, Y_train, batch_size=128, epochs=100, validation_data=(X_val, Y_val), callbacks=[model_checkpoint_callback])
     model.load_weights(checkpoint_filepath)
-    scores = model.evaluate(X_test, Y_test)
+    scores = model.evaluate(X_val, Y_val)
 
     acc = scores[2]
     print(f'{model.metrics_names[2]} of {acc*100}%;')
@@ -141,26 +134,25 @@ model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     mode='max',
     save_best_only=True)
 
-l1 = Dense(best_comb[0], input_shape=(768, ), activation=best_comb[3])
-l2 = Dense(best_comb[1], activation=best_comb[4])
-d1 = Dropout(best_comb[2])
+l1 = Dense(best_comb[0], input_shape=(768, ), activation="relu")
+l2 = Dense(best_comb[1], activation="relu")
+l3 = Dense(best_comb[2], activation="relu")
+d1 = Dropout(best_comb[3])
+d2 = Dropout(best_comb[4])
 if best_comb[5] == 'adam':
     opt = keras.optimizers.Adam(learning_rate=best_comb[6])
 else:
     opt = keras.optimizers.SGD(learning_rate=best_comb[6])
 
-model = create_model(l1, l2, d1, opt)
-history = model.fit(X_train, Y_train, batch_size=128, epochs=20, validation_data=(X_val, Y_val), callbacks=[model_checkpoint_callback])
+model = create_model(l1, l2, l3, d1, d2, opt)
+history = model.fit(X_train, Y_train, batch_size=128, epochs=100, validation_data=(X_val, Y_val), callbacks=[model_checkpoint_callback])
 model.load_weights(checkpoint_filepath)
-scores = model.evaluate(X_test, Y_test)
+scores = model.evaluate(X_val, Y_val)
 
 
 # metrics
-scores = model.evaluate(X_test, Y_test)
 print(f'Score:\n{model.metrics_names[0]} of {scores[0]};')
 print(f'{model.metrics_names[1]} of {scores[1]*100}%;')
-print(f'{model.metrics_names[2]} of {scores[2]*100}%;')
-print(f'{model.metrics_names[3]} of {scores[3]*100}%;')
 
 print("Model grid:", best_comb)
 
