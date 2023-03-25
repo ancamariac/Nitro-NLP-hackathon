@@ -20,14 +20,21 @@ with open(emb_path, 'rb') as f:
     X, Y_aux, IDS = pickle.load(f)
 
 Y = []
+cnt_Y = [0,0,0,0,0]
+
+cnt_non_off = 0
 for elem in Y_aux:
-    aux = [0,0,0,0,0]
-    aux[elem] = 1
+    aux = [0.0,0.0,0.0,0.0,0.0]
+    aux[elem] = 1.0
+    cnt_Y[elem] += 1 
     Y.append(aux)
 
-    
-X = np.array(X)
-Y = np.array(Y)
+class_weights = {}
+for i in range(5):
+    class_weights[i] = 39007 / cnt_Y[i]
+
+X = np.array(X, dtype='f')
+Y = np.array(Y, dtype='f')
 
 X_train, X_val, Y_train, Y_val = train_test_split(X, Y, test_size=0.8, random_state=33)
 
@@ -75,7 +82,7 @@ def create_model(l1, l2, l3, d1, d2, opt):
     model.add(d2)
     model.add(l3)
     model.add(Dense(5, activation='softmax'))
-    model.compile(loss='categorical_crossentropy', metrics=['accuracy', balanced_accuracy_score], optimizer=opt)
+    model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer=opt)
     return model
 
 # generate all combinations for grid search
@@ -116,7 +123,7 @@ for combination in grid_combs:
         opt = keras.optimizers.SGD(learning_rate=combination[6])
 
     model = create_model(l1, l2, l3, d1, d2, opt)
-    model.fit(X_train, Y_train, batch_size=128, epochs=100, validation_data=(X_val, Y_val), callbacks=[model_checkpoint_callback])
+    model.fit(X_train, Y_train, batch_size=128, epochs=100, validation_data=(X_val, Y_val), callbacks=[model_checkpoint_callback], class_weight=class_weights)
     model.load_weights(checkpoint_filepath)
     scores = model.evaluate(X_val, Y_val)
 
@@ -125,6 +132,7 @@ for combination in grid_combs:
     if acc > best_acc:
         best_comb = combination
         best_acc = acc
+    exit(0)
 
 # create the model for the best combination
 model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
@@ -134,7 +142,7 @@ model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     mode='max',
     save_best_only=True)
 
-l1 = Dense(best_comb[0], input_shape=(768, ), activation="relu")
+l1 = Dense(best_comb[0], input_shape=(1024, ), activation="relu")
 l2 = Dense(best_comb[1], activation="relu")
 l3 = Dense(best_comb[2], activation="relu")
 d1 = Dropout(best_comb[3])
@@ -145,7 +153,7 @@ else:
     opt = keras.optimizers.SGD(learning_rate=best_comb[6])
 
 model = create_model(l1, l2, l3, d1, d2, opt)
-history = model.fit(X_train, Y_train, batch_size=128, epochs=100, validation_data=(X_val, Y_val), callbacks=[model_checkpoint_callback])
+history = model.fit(X_train, Y_train, batch_size=128, epochs=100, validation_data=(X_val, Y_val), callbacks=[model_checkpoint_callback], class_weight=class_weights)
 model.load_weights(checkpoint_filepath)
 scores = model.evaluate(X_val, Y_val)
 
